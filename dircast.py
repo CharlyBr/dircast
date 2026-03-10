@@ -32,34 +32,88 @@ def get_mp3_metadata(filepath: Path) -> dict:
     try:
         tags = ID3(str(filepath))
     except Exception:
-        return meta
+        tags = None
 
-    if tags.get("TIT2"):
-        meta["title"] = str(tags["TIT2"])
-    if tags.get("TPE1"):
-        meta["artist"] = str(tags["TPE1"])
-    if tags.get("TALB"):
-        meta["album"] = str(tags["TALB"])
+    if tags:
+        if tags.get("TIT2"):
+            meta["title"] = str(tags["TIT2"])
+        if tags.get("TPE1"):
+            meta["artist"] = str(tags["TPE1"])
+        if tags.get("TALB"):
+            meta["album"] = str(tags["TALB"])
 
-    # Try to get a date from TDRC (recording date) or TDRL (release date) or TDAT
-    for tag_key in ("TDRC", "TDRL", "TDAT", "TYER"):
-        tag = tags.get(tag_key)
-        if tag:
-            try:
-                text = str(tag).strip()
-                # TDRC/TDRL can be full timestamp like "2023-05-12"
-                for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y"):
-                    try:
-                        meta["date"] = datetime.datetime.strptime(text, fmt)
+        # Try to get a date from TDRC (recording date) or TDRL (release date) or TDAT
+        for tag_key in ("TDRC", "TDRL", "TDAT", "TYER"):
+            tag = tags.get(tag_key)
+            if tag:
+                try:
+                    text = str(tag).strip()
+                    # TDRC/TDRL can be full timestamp like "2023-05-12"
+                    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y"):
+                        try:
+                            meta["date"] = datetime.datetime.strptime(text, fmt)
+                            break
+                        except ValueError:
+                            continue
+                    if meta["date"]:
                         break
-                    except ValueError:
-                        continue
-                if meta["date"]:
-                    break
-            except Exception:
-                continue
+                except Exception:
+                    continue
+
+    # If mutagen couldn't parse the date (e.g. non-standard TDAT with full date),
+    # try reading raw ID3v2 frames directly
+    if not meta["date"]:
+        meta["date"] = _parse_raw_id3_date(filepath)
 
     return meta
+
+
+def _parse_raw_id3_date(filepath: Path):
+    """Read raw ID3v2 frames to extract dates that mutagen may reject as non-standard."""
+    try:
+        with open(filepath, "rb") as f:
+            header = f.read(10)
+            if header[:3] != b"ID3":
+                return None
+            tag_size = (header[6] << 21) | (header[7] << 14) | (header[8] << 7) | header[9]
+            tag_data = f.read(tag_size)
+
+        date_texts = {}
+        pos = 0
+        while pos < len(tag_data) - 10:
+            frame_id = tag_data[pos:pos + 4]
+            if frame_id[0:1] == b"\x00":
+                break
+            frame_size = int.from_bytes(tag_data[pos + 4:pos + 8], "big")
+            frame_data = tag_data[pos + 10:pos + 10 + frame_size]
+            frame_name = frame_id.decode("latin-1", errors="replace")
+            if frame_name in ("TDAT", "TDRC", "TDRL", "TYER"):
+                # Text frames: first byte is encoding, rest is text
+                encoding = frame_data[0]
+                if encoding == 0:
+                    text = frame_data[1:].decode("latin-1", errors="replace").strip("\x00")
+                elif encoding == 1:
+                    text = frame_data[1:].decode("utf-16", errors="replace").strip("\x00")
+                elif encoding == 3:
+                    text = frame_data[1:].decode("utf-8", errors="replace").strip("\x00")
+                else:
+                    text = frame_data[1:].decode("latin-1", errors="replace").strip("\x00")
+                date_texts[frame_name] = text.strip()
+            pos += 10 + frame_size
+
+        # Try each date frame in priority order
+        for key in ("TDRC", "TDRL", "TDAT", "TYER"):
+            text = date_texts.get(key)
+            if not text:
+                continue
+            for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y"):
+                try:
+                    return datetime.datetime.strptime(text, fmt)
+                except ValueError:
+                    continue
+    except Exception:
+        pass
+    return None
 
 
 def format_duration(seconds: int) -> str:
