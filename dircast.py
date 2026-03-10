@@ -46,11 +46,11 @@ def get_mp3_metadata(filepath: Path) -> dict:
         tag = tags.get(tag_key)
         if tag:
             try:
-                text = str(tag)
+                text = str(tag).strip()
                 # TDRC/TDRL can be full timestamp like "2023-05-12"
                 for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y"):
                     try:
-                        meta["date"] = datetime.datetime.strptime(text[:len(fmt.replace("%", "0"))], fmt)
+                        meta["date"] = datetime.datetime.strptime(text, fmt)
                         break
                     except ValueError:
                         continue
