@@ -46,13 +46,14 @@ INDEX_HTML = """\
     body {{
       margin: 0;
       background: #000;
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
       min-height: 100vh;
-      padding-top: 10vh;
     }}
-    #app {{ position: relative; }}
+    #app {{
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }}
     .error {{ color: #f44; font-family: monospace; text-align: center; padding: 2em; }}
   </style>
 </head>
