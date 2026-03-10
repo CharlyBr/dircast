@@ -144,6 +144,13 @@ def build_feed(directory: Path, base_url: str, title: str, description: str) -> 
     SubElement(channel, "language").text = "fr"
     SubElement(channel, "generator").text = "dircast"
 
+    # Channel artwork
+    cover_path = directory / "cover.jpg"
+    if cover_path.exists():
+        cover_url = base_url.rstrip("/") + "/cover.jpg"
+        img = SubElement(channel, f"{{{itunes_ns}}}image")
+        img.set("href", cover_url)
+
     # Collect items with metadata
     items = []
     for mp3_path in mp3_files:
